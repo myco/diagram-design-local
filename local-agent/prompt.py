@@ -140,10 +140,16 @@ class DrawContext:
             "self-contained HTML file with an inline SVG diagram, following the design system "
             "below exactly.\n\n"
             "OUTPUT CONTRACT\n"
+            "- You have no tools and cannot open files: everything you need is in this message. "
+            "Do not describe what you are about to do; just write the file.\n"
             "- Reply with exactly one fenced code block tagged `html` containing the whole file, "
             "from `<!DOCTYPE html>` to `</html>`. No prose before or after it.\n"
             "- Start from the template file given below and keep its <head>, CSS and font <link> intact. "
             "Replace only the eyebrow, the <h1>, and the <svg> body.\n"
+            "- The example file shows the craft of this type, not its subject: reuse its structure, "
+            "spacing and legend pattern, never its node names, sublabels, captions or field names.\n"
+            "- Draw every component, step, message or relationship the request names. A node with no "
+            "connector, or a participant that never sends or receives, means something was dropped.\n"
             f"- Visual type: {self.type_slug}. Variant: {self.variant}. Size preset: {self.size} → "
             f"`viewBox=\"{view_box}\"` plus ~60px extra height if a legend strip is needed. "
             f"Type ramp ({ramp}): {TYPE_RAMP[ramp]}.\n"
@@ -154,6 +160,11 @@ class DrawContext:
             "- Draw arrows before boxes. Every connector between off-axis nodes is a rounded right-angle "
             "elbow, never a diagonal line. Every arrow label sits on an opaque mask rect that keeps a 6–10px "
             "gap from the stroke and never overlaps a node drawn after it.\n"
+            "- A connector starts on the border of its source box and ends on the border of its target box "
+            "(the arrowhead touches the box edge), never at a zone edge or in empty space. It must not "
+            "pass through any other box: route around with elbows, or move the boxes.\n"
+            "- Text must fit its box: allow 0.6 × font-size per character for Geist 600 names. Widen the "
+            "box or break the label into two <text> lines rather than letting it overflow.\n"
             "- Use the accent color on at most two elements. Stay within the type's complexity budget; "
             "cut rather than crowd.\n\n"
             "REFERENCE FILES\n"
@@ -170,7 +181,12 @@ def plan_prompt(request: str) -> list[dict]:
         f"\"type\" (one of: {types}), \"variant\" (light|dark|full), \"size\" (one of: {sizes}), "
         "\"title\" (≤60 chars, the page h1), \"slug\" (kebab-case), \"eyebrow\" (short mono label), "
         "\"desc\" (one sentence saying what the diagram shows, content not geometry), "
-        "\"nodes\" (list of the ≤9 node names you will draw), \"cuts\" (what you leave out and why).\n\n"
+        "\"nodes\" (list of the ≤9 node names you will draw), \"cuts\" (what you leave out and why), "
+        "\"edges\" (list of \"A -> B: label\" strings you will draw).\n"
+        "Plan for a clean drawing: at most one connector per pair of nodes, no more than three connectors "
+        "entering any one node. When the request implies a fan-in such as 'any state can go to X' or "
+        "'everything reports to Y', plan one edge from the group's boundary (or a footnote) instead of "
+        "one edge per source, and say so in \"cuts\".\n\n"
         + visual_type_guide()
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": request}]
@@ -185,14 +201,15 @@ def draw_messages(context: DrawContext, request: str, plan: dict | None) -> list
             f"- slug: {plan.get('slug', '')}\n"
             f"- eyebrow: {plan.get('eyebrow', '')}\n"
             f"- desc: {plan.get('desc', '')}\n"
-            f"- nodes: {', '.join(plan.get('nodes', []) or [])}\n"
-            f"- cuts: {plan.get('cuts', '')}\n"
+            f"- nodes: {', '.join(map(str, plan.get('nodes', []) or []))}\n"
+            + (f"- edges: {'; '.join(map(str, plan['edges']))}\n" if plan.get("edges") else "")
+            + f"- cuts: {plan.get('cuts', '')}\n"
         )
     user += "\nProduce the complete HTML file now."
     return [{"role": "system", "content": context.system_prompt()}, {"role": "user", "content": user}]
 
 
-def repair_messages(base: list[dict], html: str, findings: list[str]) -> list[dict]:
+def repair_messages(base: list[dict], html: str, findings: list[str], persisted: bool = False) -> list[dict]:
     """System + request, the latest file, and what is wrong with it.
 
     Earlier rounds are deliberately dropped: with a 32k window, the rules plus
@@ -205,6 +222,14 @@ def repair_messages(base: list[dict], html: str, findings: list[str]) -> list[di
         + "\n\nFix every item and return the complete corrected HTML file in one fenced `html` block. "
         "Change nothing that was not flagged."
     )
+    if persisted:
+        feedback += (
+            "\n\nThese same findings survived your previous fix, so nudging is not enough. Recompute the layout "
+            "instead: choose column and row positions so that every box, gap and the 40px outer margin fit inside "
+            "the viewBox (columns × box width + gaps ≤ width − 80); give each labelled connector a free segment at "
+            "least 16px longer than its label mask; shorten labels or split them onto two lines where a box "
+            "would otherwise have to grow past its neighbours."
+        )
     return base[:2] + [
         {"role": "assistant", "content": f"```html\n{html}\n```"},
         {"role": "user", "content": feedback},

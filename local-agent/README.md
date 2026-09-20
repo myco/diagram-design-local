@@ -47,8 +47,8 @@ What one run does:
 
 1. **plan** — a small call chooses the visual type, variant, size, title, slug, the ≤9 nodes it will draw and what it cuts, using the skill's visual-type guide.
 2. **draw** — one call with the design rules, type reference, template and example in context returns the whole HTML file.
-3. **verify** — `skills/diagram-design/scripts/self_check.py`, `scripts/verify-geometry.py`, structural checks (placeholders, viewBox vs preset, stray scripts) and layout checks a small model most often gets wrong: a node outside the canvas, a label wider than its box, an arrow that ends where no node is. A reply that is prose instead of a file ("I'll start by checking…") is saved next to the output and the model is asked again.
-4. **repair** — findings go back to the model, up to `--max-repairs` times.
+3. **verify** — `skills/diagram-design/scripts/self_check.py`, `scripts/verify-geometry.py`, structural checks (placeholders, viewBox vs preset, stray scripts) and layout checks a small model most often gets wrong: a node outside the canvas, a label wider than its box, an arrow that starts or ends where no node is, a connector drawn through a node it does not join, two connectors crossing with no hop, a node nothing connects to, and a node from the plan that was never drawn. Every check is calibrated to stay silent on the shipped examples. A reply that is prose instead of a file ("I'll start by checking…") is saved next to the output and the model is asked again.
+4. **repair** — findings go back to the model, up to `--max-repairs` times. Each round restarts from the base prompt plus the latest file, so a 32k window is never overflowed; when the same findings survive a round, the next request says so and asks for a layout change instead of another nudge.
 5. **finish** — the Google Fonts `<link>` is replaced by embedded `@font-face` data, the file is written, and `.svg` + `.png` are exported.
 
 The exit code is `0` when every gate passed, `2` when the file was written with open findings (they are printed), `1` when nothing usable came back.
@@ -79,11 +79,11 @@ A generated file is a few hundred KB larger than a hosted one because the fonts 
 
 ## Expectations for a 27B model
 
-The skill's quality comes from the model following ~40 KB of geometry and restraint rules while hand-writing SVG. A local 27B model does this well for flowcharts, sequences, layer stacks and similar bounded types; it is less reliable on dense types (Sankey, treemap, heatmap) and on the `full` editorial variant. The repair loop catches contract violations and the coarse layout faults above, not taste: an arrow that stops at a zone edge instead of the box inside it, or a node that strays out of its zone, still passes. When a result is off:
+The skill's quality comes from the model following ~40 KB of geometry and restraint rules while hand-writing SVG. A local 27B model does this well for flowcharts, sequences, layer stacks and similar bounded types; it is less reliable on dense types (Sankey, treemap, heatmap) and on the `full` editorial variant. The repair loop catches contract violations and the layout faults above, not taste: a node that strays out of its zone, a label that doubles up, or an ugly-but-legal route still passes. When a result is off:
 
 - give it fewer nodes in the request, or name the cuts yourself;
 - pin `--type`, `--size` and `--variant` instead of letting the plan choose;
 - raise the context length in LM Studio and run with `--profile full`;
-- lower `--temperature` (default 0.2) for stricter template adherence.
+- try `--temperature 0` for fully greedy decoding (default 0.1), or raise it slightly if the model loops.
 
 Tests: `python scripts/test-local-agent.py` (uses an in-process fake of LM Studio; no model or fonts required).

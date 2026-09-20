@@ -58,6 +58,11 @@ def parse_plan(reply: str) -> dict:
     return plan
 
 
+def _shape(finding: str) -> str:
+    """A finding with its coordinates removed, to spot the same defect recurring."""
+    return re.sub(r"[-\d.]+", "#", finding)
+
+
 def slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-")
     return slug[:60] or "diagram"
@@ -135,6 +140,9 @@ def run(args: argparse.Namespace) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     html = ""
     findings: list[str] = []
+    previous: set[str] = set()
+    persisted = False
+    planned = [str(n) for n in plan.get("nodes", []) or []]
     for round_number in range(args.max_repairs + 1):
         label = "draw " if round_number == 0 else f"repair {round_number} "
         started = time.time()
@@ -163,14 +171,16 @@ def run(args: argparse.Namespace) -> int:
             continue
         html = candidate
         out_path.write_text(html, encoding="utf-8")
-        findings = verify.verify_file(out_path, expected_box, type_slug)
+        findings = verify.verify_file(out_path, expected_box, type_slug, planned)
         if not findings:
             break
+        persisted = bool(previous) and {_shape(f) for f in findings} <= previous
+        previous = {_shape(f) for f in findings}
         log(f"  {len(findings)} finding(s):")
         for finding in findings:
             log(f"    - {finding}")
         if round_number < args.max_repairs:
-            messages = prompt.repair_messages(base, html, findings)
+            messages = prompt.repair_messages(base, html, findings, persisted=persisted)
 
     if not html:
         log("FAIL the model never returned an HTML document")
@@ -179,7 +189,7 @@ def run(args: argparse.Namespace) -> int:
     # -- finish ----------------------------------------------------------------
     html = fonts.inline_html_fonts(html)
     out_path.write_text(html, encoding="utf-8")
-    final = verify.verify_file(out_path, expected_box, type_slug)
+    final = verify.verify_file(out_path, expected_box, type_slug, planned)
     status = "OK" if not final else f"WRITTEN WITH {len(final)} OPEN FINDING(S)"
     print(f"{status} {out_path}")
     for finding in final:
@@ -209,7 +219,7 @@ def main() -> int:
     parser.add_argument("--style-guide", type=Path, default=prompt.REFERENCES / "style-guide.md", help="a customised style-guide.md")
     parser.add_argument("--max-repairs", type=int, default=2)
     parser.add_argument("--max-tokens", type=int, default=16384)
-    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--temperature", type=float, default=0.1, help="sampling temperature; 0.1 is near-deterministic without the repetition loops greedy decoding can cause on long SVG output")
     parser.add_argument("--timeout", type=int, default=900, help="seconds to wait for a streamed reply")
     parser.add_argument("--scale", type=float, default=2.0, help="PNG device scale factor")
     parser.add_argument("--no-svg", action="store_true")

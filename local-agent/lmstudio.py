@@ -9,6 +9,7 @@ emit before their answer.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import sys
@@ -94,6 +95,8 @@ class LMStudio:
             raise LMStudioError(f"LM Studio returned HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
             raise LMStudioError(f"cannot reach LM Studio at {self.base_url}: {exc.reason}") from exc
+        except (http.client.HTTPException, ConnectionError) as exc:
+            raise LMStudioError(f"LM Studio dropped the connection: {exc}") from exc
         with response:
             for raw in response:
                 line = raw.decode("utf-8", "replace").strip()
@@ -115,7 +118,7 @@ class LMStudio:
     def chat(
         self,
         messages: list[dict],
-        temperature: float = 0.2,
+        temperature: float = 0.1,
         max_tokens: int | None = 16384,
         on_token: Callable[[str], None] | None = None,
     ) -> str:
