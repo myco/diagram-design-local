@@ -194,6 +194,23 @@ def layout_findings(html: str, type_slug: str | None = None) -> list[str]:
                 f"node rect at ({x:g},{y:g}) {w:g}x{h:g} extends beyond the viewBox {boxes[0]}; "
                 "shrink the layout or its gaps so every node keeps a 40px margin"
             )
+    # Anything drawn past the bottom or right edge is invisible — typically a
+    # legend strip written without extending the viewBox for it.
+    lowest = None
+    for attrs, text in TEXT_RE.findall(svg):
+        label = re.sub(r"\s+", " ", text).strip()
+        try:
+            tx, ty = float(_attr(attrs, "x") or "nan"), float(_attr(attrs, "y") or "nan")
+        except ValueError:
+            continue
+        if label and (ty > max_y - 2 or tx > max_x - 2) and (lowest is None or ty > lowest[1]):
+            lowest = (label, ty, tx)
+    if lowest:
+        findings.append(
+            f"text {lowest[0]!r} at ({lowest[2]:g},{lowest[1]:g}) lies outside the viewBox {boxes[0]} and will be cut off; "
+            f"for a legend strip set the viewBox height to {max_y - min_y + 60:g} (the preset plus 60), "
+            "otherwise move the content up"
+        )
     nodes = [(float(x), float(y), float(w), float(h)) for x, y, w, h in RECT_RE.findall(svg)
              if float(w) >= NODE_MIN[0] and float(h) >= NODE_MIN[1]]
     for attrs, text in TEXT_RE.findall(svg):

@@ -395,6 +395,26 @@ python local-agent/agent.py --model qwen/qwen3.8-27b "Flowchart of an order: val
 
 The runner sends the model the same `SKILL.md` rules, type reference, template and example a hosted agent loads, runs `self_check.py` and `verify-geometry.py` on the reply, sends failures back for repair, then writes `diagrams/<slug>.html` with the fonts embedded and exports `.svg` and `.png` next to it. See [`local-agent/README.md`](local-agent/README.md) for flags, what stays offline, and what to expect from a 27B model.
 
+### One run, step by step
+
+The runner drew its own pipeline. This is the actual output of `qwen/qwen3.8-27b` for the request *"Flowchart of how the local-agent diagram generator works…"* — `--type flowchart --size doc-wide`, plan 11 s, draw 78 s, no repair round needed:
+
+[![How the local agent generates a diagram](docs/local-agent/local-agent-cycle.png)](docs/local-agent/local-agent-cycle.png)
+
+1. **Plan** — `agent.py` sends the request plus the skill's visual-type table to LM Studio in a small call. The model returns a JSON plan: title, the nine node names (User request → … → Diagram files written), the edges, and explicit *cuts* — here the repair cap and the escalation rule became sublabels rather than extra nodes, and verify.py's sub-checks were folded into the decision diamond. `--type`, `--size` and `--variant` override what the plan chooses.
+
+2. **Assemble the prompt** — `prompt.py` loads the skill's own files for this combination: the SKILL.md rule sections, `references/type-flowchart.md` (ovals for start/end, rectangles for steps, diamonds with ≤3 exits), `assets/template.html`, and `assets/example-flowchart.html` as a worked specimen. On top goes the output contract: no tools, one fenced block, the exact viewBox for the size preset (`0 0 1280 780` with a legend strip), connectors that start and end on box borders, every planned node drawn. About 11k tokens under the *lean* profile.
+
+3. **Draw** — `lmstudio.py` streams the request to the local model and receives the whole HTML file. `verify.extract_html()` pulls the `<!DOCTYPE html>…</html>` document out of the fence; a reply that narrates instead of drawing is saved next to the output and the model is asked again.
+
+4. **Verify** — the file is written and run through every gate: structural (placeholders, one `<svg>`, viewBox vs preset), coverage (all nine planned nodes present), layout (nothing off-canvas, labels fit their boxes, arrows land on box borders — including the RETRY loop into Draw — no connector through a node, no crossings, no orphans, no overlaps, nothing below the canvas), then the repository's own `self_check.py` and `verify-geometry.py`. This run: zero findings.
+
+5. **Repair** — not needed here. When findings exist, `repair_messages()` rebuilds the conversation from the base prompt plus the latest file plus the finding sentences, so a 32k window never overflows; if a round fixes nothing, the next request says so and asks for a recomputed layout. The first attempt at this same diagram took two such rounds, both for the RETRY arrow stopping 12px short of its target.
+
+6. **Embed fonts** — `fonts.py` replaces the Google Fonts `<link>` with `@font-face` rules carrying base64 woff2 from `local-agent/fonts/`. Only the slices the document's text needs are embedded (nine for this Latin-only file), and the HTML becomes fully self-contained.
+
+7. **Export** — `export.py` writes the `.svg` (the `<svg>` node with the same font CSS in `<defs>`, colours normalised, XML prolog) and the `.png` by opening the HTML in the local Chromium with every http(s) request blocked, waiting for `document.fonts.ready`, and screenshotting the `<svg>` element. The image above is that PNG.
+
 ---
 
 ## Architecture
@@ -511,6 +531,7 @@ diagram-design/
 │   ├── verify.py                    — runs the repository gates on one generated file
 │   ├── export.py                    — offline .svg (fonts embedded) + .png export
 │   └── fonts.py                     — vendored-font selection and embedding
+├── docs/local-agent/                — the runner's self-drawn pipeline, referenced by the README
 ├── docs/cookbook.md                 — operator recipes for editable installs and common tasks
 ├── docs/adr/                        — short records of settled design decisions
 ├── docs/screenshots/                — full-resolution images + source-digest manifest.json

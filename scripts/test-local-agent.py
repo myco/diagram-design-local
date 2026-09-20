@@ -250,6 +250,14 @@ def test_layout_findings() -> None:
     found = verify.layout_findings(overlapping, "architecture")
     check("overlapping nodes reported", any("'One' and 'Two' overlap by 16x64px" in f for f in found), str(found))
     check("separated nodes not reported", not any("'Two' and 'Far'" in f for f in found), str(found))
+    clipped = (
+        '<svg viewBox="0 0 400 300"><rect x="40" y="40" width="120" height="64"/><text x="100" y="76" font-size="12">Box</text>'
+        '<line x1="20" y1="280" x2="380" y2="280" stroke="#ccc"/><text x="30" y="296" font-size="8">LEGEND</text>'
+        '<text x="62" y="314" font-size="8.5">Step (rectangle)</text></svg>'
+    )
+    found = verify.layout_findings(clipped, "flowchart")
+    check("legend below the viewBox reported with the fix", any("'Step (rectangle)'" in f and "height to 360" in f for f in found), str(found))
+    check("content inside the viewBox not reported", not any("outside the viewBox" in f for f in verify.layout_findings(clipped.replace('0 0 400 300', '0 0 400 360'), "flowchart")))
 
 
 def _raises(fn) -> bool:

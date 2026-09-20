@@ -135,6 +135,8 @@ class DrawContext:
 
     def system_prompt(self) -> str:
         view_box, ramp = SIZE_PRESETS[self.size]
+        x, y, w, h = view_box.split()
+        legend_box = f"{x} {y} {w} {int(h) + 60}"
         return (
             "You are Diagram Design, an editorial diagram author. You write one complete, "
             "self-contained HTML file with an inline SVG diagram, following the design system "
@@ -151,7 +153,8 @@ class DrawContext:
             "- Draw every component, step, message or relationship the request names. A node with no "
             "connector, or a participant that never sends or receives, means something was dropped.\n"
             f"- Visual type: {self.type_slug}. Variant: {self.variant}. Size preset: {self.size} → "
-            f"`viewBox=\"{view_box}\"` plus ~60px extra height if a legend strip is needed. "
+            f"`viewBox=\"{view_box}\"` without a legend, or `viewBox=\"{legend_box}\"` with the legend strip "
+            "(hairline, LEGEND label and keys all inside that height, none below it). "
             f"Type ramp ({ramp}): {TYPE_RAMP[ramp]}.\n"
             "- Replace every `[diagram-slug]` with a short kebab-case slug for this diagram; keep the "
             "`<title id=\"<slug>-title\">` and `<desc id=\"<slug>-desc\">` as the first children of <svg>, "
